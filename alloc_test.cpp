@@ -351,7 +351,7 @@ auto do_test(Allocator& _allocator, std::size_t n_strings, std::size_t _string_l
 
 int main(int _argc, char** _argv)
 {
-    constexpr auto strings_to_allocate = 150'000;
+    constexpr auto strings_to_allocate = 75'000;
 
     try {
         constexpr std::size_t max_size = 50'000'000;
@@ -365,6 +365,7 @@ int main(int _argc, char** _argv)
             do_test(*ndr, strings_to_allocate, 16);
             do_test(*ndr, strings_to_allocate, 32);
             do_test(*ndr, strings_to_allocate, 64);
+            do_test(*ndr, strings_to_allocate, 191);
             std::cout << '\n';
         }
         
@@ -376,6 +377,7 @@ int main(int _argc, char** _argv)
         do_test(cmp, strings_to_allocate, 16);
         do_test(cmp, strings_to_allocate, 32);
         do_test(cmp, strings_to_allocate, 64);
+        do_test(cmp, strings_to_allocate, 191);
         std::cout << '\n';
         
         std::cout << "================================\n";
@@ -387,6 +389,7 @@ int main(int _argc, char** _argv)
         do_test(fbr, strings_to_allocate, 16);
         do_test(fbr, strings_to_allocate, 32);
         do_test(fbr, strings_to_allocate, 64);
+        do_test(fbr, strings_to_allocate, 191);
         std::cout << '\n';
 
         std::cout << "\n================================\n";
@@ -397,6 +400,7 @@ int main(int _argc, char** _argv)
         do_test(upr, strings_to_allocate, 16);
         do_test(upr, strings_to_allocate, 32);
         do_test(upr, strings_to_allocate, 64);
+        do_test(upr, strings_to_allocate, 191);
     }
     catch (const std::exception& e) {
         std::cout << e.what() << '\n';
