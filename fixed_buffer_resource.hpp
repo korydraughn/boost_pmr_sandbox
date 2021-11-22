@@ -1,74 +1,19 @@
-#include <cstddef>
-#include <cassert>
-#include <iostream>
-#include <array>
-#include <stdexcept>
-#include <chrono>
-#include <algorithm>
-#include <random>
-#include <memory>
+#ifndef IRODS_FIXED_BUFFER_RESOURCE_HPP
+#define IRODS_FIXED_BUFFER_RESOURCE_HPP
+
+/// \file
 
 #include <boost/container/pmr/memory_resource.hpp>
-#include <boost/container/pmr/unsynchronized_pool_resource.hpp>
-#include <boost/container/pmr/vector.hpp>
-#include <boost/container/pmr/string.hpp>
-#include <boost/align/is_aligned.hpp>
 
 #include <fmt/format.h>
 
-#include "fixed_buffer_resource.hpp"
-
-namespace pmr = boost::container::pmr;
-
-class capped_memory_pool
-    : public pmr::memory_resource
-{
-public:
-    explicit capped_memory_pool(std::int64_t _max_size)
-        : pmr::memory_resource{}
-        , max_size_(_max_size)
-        , allocated_{}
-    {
-        if (_max_size <= 0) {
-            throw std::runtime_error{"invalid value for max size"};
-        }
-    }
-
-    std::size_t allocated() const noexcept
-    {
-        return allocated_;
-    }
-
-protected:
-    void* do_allocate(std::size_t _bytes, std::size_t) override
-    {
-        if (allocated_ + _bytes >= max_size_)
-            throw std::bad_alloc{};
-
-        auto* p = std::malloc(_bytes);
-        allocated_ += _bytes;
-
-        return p;
-    }
-
-    void do_deallocate(void* _p, std::size_t _bytes, std::size_t) override
-    {
-        std::free(_p);
-        allocated_ -= _bytes;
-    }
-
-    bool do_is_equal(const pmr::memory_resource&) const noexcept override
-    {
-        return true;
-    }
-
-private:
-    std::size_t max_size_;
-    std::size_t allocated_;
-};
-
-#if 0
-//#define IRODS_FIXED_BUFFER_RESOURCE_ENABLE_DEBUG
+#include <cassert>
+#include <cstddef>
+#include <memory>
+#include <ostream>
+#include <stdexcept>
+#include <tuple>
+#include <type_traits>
 
 /// A namespace containing components meant to be used with Boost.Container's PMR library.
 namespace irods::experimental::pmr
@@ -108,7 +53,6 @@ namespace irods::experimental::pmr
             , buffer_{_buffer}
             , buffer_size_(_buffer_size)
             , allocated_{}
-            , overhead_{}
             , headers_{}
         {
             if (!_buffer || _buffer_size <= 0) {
@@ -130,12 +74,6 @@ namespace irods::experimental::pmr
             headers_->prev = nullptr;
             headers_->next = nullptr;
             headers_->used = false;
-
-            // If "buffer_"'s alignment was adjusted, "buffer_size_" will be decreased
-            // by the number of bytes used for alignment. We need to make sure that the
-            // value of overhead reflects that.
-            //overhead_ = (sizeof(header) + _buffer_size - buffer_size_);
-            //overhead_ = calculate_overhead(headers_);
         } // fixed_buffer_resource
 
         fixed_buffer_resource(const fixed_buffer_resource&) = delete;
@@ -162,21 +100,7 @@ namespace irods::experimental::pmr
         /// \since 4.2.11
         auto allocation_overhead() const noexcept -> std::size_t
         {
-#if 0
-            std::size_t sum = 0;
-
-            for (auto* h = headers_; h; h = h->next) {
-                const auto overhead = calculate_overhead(h);
-                sum += overhead;
-                fmt::print("overhead for header [{}] = {}, total = {}\n", fmt::ptr(h), overhead, sum);
-            }
-
-            print(std::cout);
-
-            return sum;
-#else
-            return overhead_;
-#endif
+            return 0;
         } // allocation_overhead
 
         /// Writes the state of the allocation table to the output stream.
@@ -188,13 +112,13 @@ namespace irods::experimental::pmr
 
             for (auto* h = headers_; h; h = h->next) {
                 _os << fmt::format("{:>3}. Header Info [{}]: {{previous={:14}, next={:14}, used={:>5}, data={:14}, data_size={}}}\n",
-                                  i,
-                                  fmt::ptr(h),
-                                  fmt::ptr(h->prev),
-                                  fmt::ptr(h->next),
-                                  h->used,
-                                  fmt::ptr(address_of_data_segment(h)),
-                                  h->size);
+                                   i,
+                                   fmt::ptr(h),
+                                   fmt::ptr(h->prev),
+                                   fmt::ptr(h->next),
+                                   h->used,
+                                   fmt::ptr(address_of_data_segment(h)),
+                                   h->size);
                 ++i;
             }
         } // print
@@ -204,10 +128,6 @@ namespace irods::experimental::pmr
         {
             for (auto* h = headers_; h; h = h->next) {
                 if (auto* p = allocate_block(_bytes, _alignment, h); p) {
-#ifdef IRODS_FIXED_BUFFER_RESOURCE_ENABLE_DEBUG
-                    std::cout << fmt::format("allocated [{}] bytes at address [{}]\n", _bytes, p);
-                    print(std::cout); std::cout << '\n';
-#endif
                     return p;
                 }
             }
@@ -217,14 +137,7 @@ namespace irods::experimental::pmr
 
         auto do_deallocate(void* _p, std::size_t _bytes, std::size_t _alignment) -> void override
         {
-#ifdef IRODS_FIXED_BUFFER_RESOURCE_ENABLE_DEBUG
-            fmt::print("deallocating [{}] bytes at address [{}] ...\n", _bytes, _p);
-            print(std::cout); std::cout << '\n';
-#endif
             void* data = *(static_cast<void**>(_p) - 1);
-#ifdef IRODS_FIXED_BUFFER_RESOURCE_ENABLE_DEBUG
-            fmt::print("unaligned data pointer = [{}]\n", fmt::ptr(data));
-#endif
             auto* h = reinterpret_cast<header*>(static_cast<ByteRep*>(data) - sizeof(header));
 
             assert(h != nullptr);
@@ -236,10 +149,6 @@ namespace irods::experimental::pmr
             coalesce_with_next_unused_block(h->prev);
 
             allocated_ -= _bytes;
-#ifdef IRODS_FIXED_BUFFER_RESOURCE_ENABLE_DEBUG
-            fmt::print("deallocated [{}] bytes at address [{}]\n", _bytes, _p);
-            print(std::cout); std::cout << '\n';
-#endif
         } // do_deallocate
 
         auto do_is_equal(const boost::container::pmr::memory_resource& _other) const noexcept -> bool override
@@ -277,9 +186,6 @@ namespace irods::experimental::pmr
         {
             // The unused memory is located right after the header.
             void* data = address_of_data_segment(_h);
-#ifdef IRODS_FIXED_BUFFER_RESOURCE_ENABLE_DEBUG
-            fmt::print("unaligned data pointer = [{}]\n", fmt::ptr(data));
-#endif
             auto space_left = _h->size - sizeof(void*);
 
             // Reserve space for the potentially unaligned pointer.
@@ -311,6 +217,9 @@ namespace irods::experimental::pmr
                 }
             }
 
+            // TODO Is it possible to compute the amount of memory needed to satisfy
+            // the allocation and alignment requirements? I'm not sure if this line
+            // is correct.
             const auto max_space_needed = sizeof(header) + sizeof(void*) + _bytes + _alignment;
 
             // Split the data segment managed by this header if it is large enough
@@ -322,15 +231,11 @@ namespace irods::experimental::pmr
                     return nullptr;
                 }
 
-                //std::size_t overhead = reinterpret_cast<ByteRep*>(aligned_data) - reinterpret_cast<ByteRep*>(_h);
-
                 void* aligned_header_storage = static_cast<ByteRep*>(aligned_data) + _bytes;
 
                 if (!std::align(alignof(header), sizeof(header), aligned_header_storage, space_left)) {
                     return nullptr;
                 }
-
-                const auto overhead_for_h = calculate_overhead(_h);
 
                 // Construct a new header after the memory managed by "_h".
                 // The new header manages unused memory.
@@ -353,10 +258,6 @@ namespace irods::experimental::pmr
 
                 allocated_ += _bytes;
 
-                //overhead_ -= overhead_for_h;
-                //overhead_ += calculate_overhead(_h);
-                //overhead_ += calculate_overhead(new_header);
-
                 return aligned_data;
             }
 
@@ -370,13 +271,11 @@ namespace irods::experimental::pmr
             }
 
             auto* header_to_remove = _h->next;
-            const auto overhead_for_h = calculate_overhead(_h);
-            const auto overhead_to_remove = calculate_overhead(_h->next);
 
             // Coalesce the memory blocks if they are not in use by the client.
             // This means that "_h" will absorb the header at "_h->next".
             if (header_to_remove && !header_to_remove->used) {
-                _h->size += (header_to_remove->size + overhead_to_remove);
+                _h->size += header_to_remove->size;
                 _h->next = header_to_remove->next;
 
                 // Make sure the links between the headers are updated appropriately.
@@ -384,122 +283,15 @@ namespace irods::experimental::pmr
                 if (auto* new_next_header = header_to_remove->next; new_next_header) {
                     new_next_header->prev = _h;
                 }
-
-                //overhead_ -= (overhead_for_h + overhead_to_remove);
-                //overhead_ += calculate_overhead(_h);
             }
         } // coalesce_with_next_unused_block
-
-        auto calculate_overhead(header* _h) const noexcept -> std::size_t
-        {
-            if (_h) {
-                if (_h->next) {
-                    const auto diff = reinterpret_cast<ByteRep*>(_h->next) - reinterpret_cast<ByteRep*>(_h) - _h->size;
-                    //fmt::print("internal node diff = {}\n", diff);
-                    return diff;
-                }
-
-                const auto end_of_buffer = reinterpret_cast<ByteRep*>(buffer_) + buffer_size_;
-                //fmt::print("end_of_buffer = {}", end_of_buffer);
-                //fmt::print("_h->size      = {}", _h->size);
-                //fmt::print("_h - _h->size = {}", std::ptrdiff_t{reinterpret_cast<ByteRep*>(_h) - _h->size});
-
-                const auto diff = end_of_buffer - reinterpret_cast<ByteRep*>(_h) - _h->size;
-                //fmt::print("last node diff = {}\n", diff);
-                return diff;
-            }
-
-            return 0;
-        } // calculate_overhead
 
         void* buffer_;
         std::size_t buffer_size_;
         std::size_t allocated_;
-        std::size_t overhead_;
         header* headers_;
     }; // fixed_buffer_resource
 } // namespace irods::experimental::pmr
-#endif
 
-std::string random_string(std::size_t length)
-{
-    const auto randchar = []() -> char
-    {
-        const char charset[] =
-        "0123456789"
-        //"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        //"abcdefghijklmnopqrstuvwxyz"
-        ;
-        const size_t max_index = (sizeof(charset) - 1);
-        return charset[rand() % max_index];
-    };
-    
-    std::string str(length, 0);
-    std::generate_n(str.begin(), length, randchar);
-    
-    return str;
-}
-
-template <typename Allocator>
-auto do_test(Allocator& _allocator) -> void
-{
-    pmr::vector<pmr::string> strings{&_allocator};
-    
-    if constexpr (std::is_same_v<Allocator, irods::experimental::pmr::fixed_buffer_resource<std::byte>>) {
-        //_allocator.print(std::cout); std::cout << '\n';
-    }
-
-    const auto start = std::chrono::system_clock::now();
-    
-    try {
-        strings.reserve(1200000);
-        for (int i = 0; i < 1200000; ++i) {
-            //const auto s = random_string(6);
-            //strings.emplace_back(s.c_str());
-            //strings.emplace_back("0123456789012345678901234567890123456789012345678901234567890123456789");
-            strings.emplace_back("012345");
-        }
-    }
-    catch (const std::exception& e) {
-        std::cout << e.what() << '\n';
-    }
-
-    const auto elapsed = std::chrono::system_clock::now() - start;
-    const auto t = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed);
-    std::cout << "time elapsed             : " << t.count() << '\n';
-
-    if constexpr (std::is_same_v<Allocator, irods::experimental::pmr::fixed_buffer_resource<std::byte>> ||
-                  std::is_same_v<Allocator, capped_memory_pool>)
-    {
-        std::cout << "total memory allocated   : " << _allocator.allocated() << '\n';
-        //std::cout << "total allocation overhead: " << _allocator.allocation_overhead() << '\n';
-        //_allocator.print(std::cout); std::cout << '\n';
-    }
-}
-
-int main()
-{
-    constexpr std::size_t max_size = 100000000;
-
-    {
-        capped_memory_pool cmp{max_size};
-        pmr::unsynchronized_pool_resource uspr{&cmp};
-        //do_test(cmp);
-        do_test(uspr);
-        std::cout << '\n';
-    }
-
-    std::vector<std::byte> buffer(max_size);
-    irods::experimental::pmr::fixed_buffer_resource fbr(buffer.data(), buffer.size());
-    do_test(fbr);
-
-    //pmr::unsynchronized_pool_resource uspr{&fbr};
-    //do_test(uspr);
-
-    std::cout << "\nPost Test:\n";
-    std::cout << "  total memory allocated   : " << fbr.allocated() << '\n';
-    std::cout << "  total allocation overhead: " << fbr.allocation_overhead() << '\n';
-
-    return 0;
-}
+#endif // IRODS_FIXED_BUFFER_RESOURCE_HPP
 
