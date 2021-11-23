@@ -136,7 +136,7 @@ namespace irods::experimental::pmr
             throw std::bad_alloc{};
         } // do_allocate
 
-        auto do_deallocate(void* _p, std::size_t _bytes, std::size_t _alignment) -> void override
+        auto do_deallocate(void* _p, std::size_t _bytes, std::size_t /* _alignment */) -> void override
         {
             void* data = *(static_cast<void**>(_p) - 1);
             auto* h = reinterpret_cast<header*>(static_cast<ByteRep*>(data) - sizeof(header));
