@@ -25,7 +25,10 @@ namespace irods::experimental::pmr
     /// This class implements a first-fit scheme and is NOT thread-safe.
     ///
     /// \tparam ByteRep The memory representation for the underlying buffer. Must be one of
-    ///                 the following: \p char, unsigned char, or \p std::byte.
+    ///                 the following:
+    /// - char
+    /// - unsigned char
+    /// - std::byte
     ///
     /// \since 4.2.11
     template <typename ByteRep>
@@ -33,7 +36,9 @@ namespace irods::experimental::pmr
         : public boost::container::pmr::memory_resource
     {
     public:
-        static_assert(sizeof(ByteRep) == 1);
+        static_assert(std::is_same_v<ByteRep, char> ||
+                      std::is_same_v<ByteRep, unsigned char> ||
+                      std::is_same_v<ByteRep, std::byte>);
 
         /// Constructs a \p fixed_buffer_resource using the given buffer as the allocation
         /// source.
