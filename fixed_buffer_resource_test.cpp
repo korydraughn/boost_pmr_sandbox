@@ -452,12 +452,16 @@ auto do_test(Allocator& _allocator) -> void
     const auto start = std::chrono::system_clock::now();
     
     try {
-        strings.reserve(1200000);
-        for (int i = 0; i < 1200000; ++i) {
+        //strings.reserve(1200000);
+        //for (int i = 0; i < 150'000; ++i) {
+        for (int i = 0; i < 1; ++i) {
+            //strings.emplace_back(random_string(32).c_str());
             //const auto s = random_string(6);
             //strings.emplace_back(s.c_str());
+            const auto s = random_string(32);
+            strings.push_back(s.c_str());
             //strings.emplace_back("0123456789012345678901234567890123456789012345678901234567890123456789");
-            strings.emplace_back("012345");
+            //strings.emplace_back("012345");
         }
     }
     catch (const std::exception& e) {

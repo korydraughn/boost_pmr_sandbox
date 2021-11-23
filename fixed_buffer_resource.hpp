@@ -24,8 +24,8 @@ namespace irods::experimental::pmr
     ///
     /// This class implements a first-fit scheme and is NOT thread-safe.
     ///
-    /// \tparam ByteRep The memory representation for the underlying buffer. Must be \p char
-    ///                 or \p std::byte.
+    /// \tparam ByteRep The memory representation for the underlying buffer. Must be one of
+    ///                 the following: \p char, unsigned char, or \p std::byte.
     ///
     /// \since 4.2.11
     template <typename ByteRep>
@@ -33,10 +33,7 @@ namespace irods::experimental::pmr
         : public boost::container::pmr::memory_resource
     {
     public:
-        static_assert(std::is_same_v<ByteRep, char> ||
-                      std::is_same_v<ByteRep, unsigned char> ||
-                      std::is_same_v<ByteRep, std::uint8_t> ||
-                      std::is_same_v<ByteRep, std::byte>);
+        static_assert(sizeof(ByteRep) == 1);
 
         /// Constructs a \p fixed_buffer_resource using the given buffer as the allocation
         /// source.
@@ -58,8 +55,7 @@ namespace irods::experimental::pmr
             if (!_buffer || _buffer_size <= 0) {
                 const auto* msg_fmt = "fixed_buffer_resource: invalid constructor arguments "
                                       "[buffer={}, size={}].";
-                const auto msg = fmt::format(msg_fmt, fmt::ptr(_buffer), _buffer_size);
-                throw std::invalid_argument{msg_fmt};
+                throw std::invalid_argument{fmt::format(msg_fmt, fmt::ptr(_buffer), _buffer_size)};
             }
 
             std::size_t space_left = buffer_size_;
@@ -162,11 +158,11 @@ namespace irods::experimental::pmr
         //
         // Memory Layout:
         //
-        //     +------------------------------------------------------------------+
-        //     | padding | header |                 data segment                  |
-        //     +------------------+-----------------------------------------------+
-        //                        | padding | unaligned pointer | aligned pointer |
-        //                        +-----------------------------------------------+
+        //     +-------------------------------------------------------------------------+
+        //     | padding | header |                    data segment                      |
+        //     +------------------+------------------------------------------------------+
+        //                        | padding | unaligned pointer | aligned pointer | data |
+        //                        +------------------------------------------------------+
         //
         struct header
         {
@@ -186,10 +182,10 @@ namespace irods::experimental::pmr
         {
             // The unused memory is located right after the header.
             void* data = address_of_data_segment(_h);
-            auto space_left = _h->size - sizeof(void*);
 
             // Reserve space for the potentially unaligned pointer.
             void* aligned_data = static_cast<ByteRep*>(data) + sizeof(void*);
+            auto space_left = _h->size - sizeof(void*);
 
             if (!std::align(_alignment, _bytes, aligned_data, space_left)) {
                 return {nullptr, 0};
@@ -232,6 +228,7 @@ namespace irods::experimental::pmr
                 }
 
                 void* aligned_header_storage = static_cast<ByteRep*>(aligned_data) + _bytes;
+                space_left -= _bytes;
 
                 if (!std::align(alignof(header), sizeof(header), aligned_header_storage, space_left)) {
                     return nullptr;
